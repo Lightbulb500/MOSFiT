@@ -28,7 +28,7 @@ from six import string_types
 class Model(object):
     """Define a semi-analytical model to fit transients with."""
 
-    MODEL_OUTPUT_DIR = 'products'
+    MODEL_PRODUCTS_DIR = 'products'
     MIN_WAVE_FRAC_DIFF = 0.1
     DRAW_LIMIT = 10
 
@@ -40,6 +40,7 @@ class Model(object):
                  model='',
                  data={},
                  wrap_length=100,
+                 output_path='',
                  pool=None,
                  test=False,
                  printer=None,
@@ -49,6 +50,8 @@ class Model(object):
         from mosfit.fitter import Fitter
 
         self._model_name = model
+        self._parameter_path = parameter_path
+        self._output_path = output_path
         self._pool = SerialPool() if pool is None else pool
         self._is_master = pool.is_master() if pool else False
         self._wrap_length = wrap_length
@@ -122,10 +125,9 @@ class Model(object):
                             options=type_options,
                             message=False,
                             default='n',
-                            none_string=('None of the above, skip this '
-                                         'transient.'))
+                            none_string=prt.text('none_above_models'))
                         if sel is not None:
-                            self._model_name = type_options[sel - 1]
+                            self._model_name = type_options[int(sel) - 1]
                     if not self._model_name:
                         break
                     if self._model_name == another_model_txt:
@@ -177,7 +179,7 @@ class Model(object):
                 del(self._model[tag])
 
         # with open(os.path.join(
-        #         self.MODEL_OUTPUT_DIR,
+        #         self.get_products_path(),
         #         self._model_name + '.json'), 'w') as f:
         #     json.dump(self._model, f)
 
@@ -187,18 +189,19 @@ class Model(object):
 
         pp = ''
 
-        local_pp = (parameter_path if '/' in parameter_path
-                    else os.path.join('models', model_dir, parameter_path))
+        local_pp = (self._parameter_path if '/' in self._parameter_path
+                    else os.path.join('models', model_dir,
+                                      self._parameter_path))
 
         if os.path.isfile(local_pp):
             selected_pp = local_pp
         else:
             selected_pp = os.path.join(
-                self._dir_path, 'models', model_dir, parameter_path)
+                self._dir_path, 'models', model_dir, self._parameter_path)
 
         # First try user-specified path
-        if parameter_path and os.path.isfile(parameter_path):
-            pp = parameter_path
+        if self._parameter_path and os.path.isfile(self._parameter_path):
+            pp = self._parameter_path
         # Then try directory we are running from
         elif os.path.isfile('parameters.json'):
             pp = 'parameters.json'
@@ -209,7 +212,7 @@ class Model(object):
         elif os.path.isfile(model_pp):
             pp = model_pp
         else:
-            raise ValueError('Could not find parameter file!')
+            raise ValueError(prt.text('no_parameter_file'))
 
         if self._is_master:
             prt.message('files', [basic_model_path, model_path, pp],
@@ -273,7 +276,7 @@ class Model(object):
                     self._call_stack[task] = unsorted_call_stack[task]
 
         # with open(os.path.join(
-        #         self.MODEL_OUTPUT_DIR,
+        #         self.get_products_path(),
         #         self._model_name + '-stack.json'), 'w') as f:
         #     json.dump(self._call_stack, f)
 
@@ -290,27 +293,6 @@ class Model(object):
                 self._bands = self._modules[task].bands()
             self._modules[task].set_attributes(cur_task)
 
-            # This is currently not functional for MPI
-            # cur_task = self._call_stack[task]
-            # mod_name = cur_task.get('class', task)
-            # mod_path = os.path.join('modules', cur_task['kind'] + 's',
-            #                         mod_name + '.py')
-            # if not os.path.isfile(mod_path):
-            #     mod_path = os.path.join(self._dir_path, 'modules',
-            #                             cur_task['kind'] + 's',
-            #                             mod_name + '.py')
-            # mod_name = ('mosfit.modules.' + cur_task['kind'] + 's.' +
-            # mod_name)
-            # mod = importlib.machinery.SourceFileLoader(mod_name,
-            #                                            mod_path).load_module()
-            # mod_class = getattr(mod, class_name)
-            # if (cur_task['kind'] == 'parameter' and task in
-            #         self._parameter_json):
-            #     cur_task.update(self._parameter_json[task])
-            # self._modules[task] = mod_class(name=task, **cur_task)
-            # if mod_name == 'photometry':
-            #     self._bands = self._modules[task].bands()
-
         # Look forward to see which modules want dense arrays.
         for task in self._call_stack:
             for ftask in self._call_stack:
@@ -321,6 +303,10 @@ class Model(object):
 
         # Count free parameters.
         self.determine_free_parameters()
+
+    def get_products_path(self):
+        """Get path to products."""
+        return os.path.join(self._output_path, self.MODEL_PRODUCTS_DIR)
 
     def _load_task_module(self, task, call_stack=None):
         if not call_stack:
@@ -360,6 +346,8 @@ class Model(object):
                   exclude_systems=[],
                   exclude_sources=[],
                   exclude_kinds=[],
+                  time_unit=None,
+                  time_list=[],
                   band_list=[],
                   band_systems=[],
                   band_instruments=[],
@@ -421,6 +409,8 @@ class Model(object):
                     exclude_systems=exclude_systems,
                     exclude_sources=exclude_sources,
                     exclude_kinds=exclude_kinds,
+                    time_unit=time_unit,
+                    time_list=time_list,
                     band_list=band_list,
                     band_systems=band_systems,
                     band_instruments=band_instruments,
@@ -775,7 +765,15 @@ class Model(object):
                     trees[tag]['children'].update(children)
                     simple[tag].update(simple_children)
 
-    def draw_walker(self, test=True, walkers_pool=[], replace=False):
+    def draw_from_icdf(self, draw):
+        """Draw parameters into unit interval using parameter inverse CDFs."""
+        return [
+            self._modules[self._free_parameters[i]].prior_icdf(x)
+            for i, x in enumerate(draw)
+        ]
+
+    def draw_walker(self, test=True, walkers_pool=[], replace=False,
+                    weights=None):
         """Draw a walker randomly.
 
         Draw a walker randomly from the full range of all parameters, reject
@@ -788,15 +786,13 @@ class Model(object):
             draw_cnt += 1
             draw = np.random.uniform(
                 low=0.0, high=1.0, size=self._num_free_parameters)
-            draw = [
-                self._modules[self._free_parameters[i]].prior_cdf(x)
-                for i, x in enumerate(draw)
-            ]
+            draw = self.draw_from_icdf(draw)
             if len(walkers_pool):
                 if not replace:
                     chosen_one = 0
                 else:
-                    chosen_one = np.random.choice(range(len(walkers_pool)))
+                    chosen_one = np.random.choice(range(len(walkers_pool)),
+                                                  p=weights)
                 for e, elem in enumerate(walkers_pool[chosen_one]):
                     if elem is not None:
                         draw[e] = elem
@@ -816,6 +812,11 @@ class Model(object):
 
         if not replace and chosen_one is not None:
             del(walkers_pool[chosen_one])
+            if weights is not None:
+                del(weights[chosen_one])
+                if len(weights) and None not in weights:
+                    totw = np.sum(weights)
+                    weights = [x / totw for x in weights]
         return (p, score)
 
     def get_max_depth(self, tag, parent, max_depth):
@@ -864,6 +865,11 @@ class Model(object):
         outputs = self.run_stack(x, root='objective')
         return outputs['value']
 
+    def ln_likelihood_floored(self, x):
+        """Return ln(likelihood), floored to a finite value."""
+        outputs = self.run_stack(x, root='objective')
+        return max(LOCAL_LIKELIHOOD_FLOOR, outputs['value'])
+
     def free_parameter_names(self, x):
         """Return list of free parameter names."""
         return self._free_parameters
@@ -886,17 +892,17 @@ class Model(object):
         for key in sorted(kwargs):
             x.append(kwargs[key])
 
-        l = self.ln_likelihood(x) + self.ln_prior(x)
-        if not np.isfinite(l):
+        li = self.ln_likelihood(x) + self.ln_prior(x)
+        if not np.isfinite(li):
             return LOCAL_LIKELIHOOD_FLOOR
-        return l
+        return li
 
     def fprob(self, x):
         """Return score for fracking."""
-        l = -(self.ln_likelihood(x) + self.ln_prior(x))
-        if not np.isfinite(l):
+        li = -(self.ln_likelihood(x) + self.ln_prior(x))
+        if not np.isfinite(li):
             return -LOCAL_LIKELIHOOD_FLOOR
-        return l
+        return li
 
     def plural(self, x):
         """Pluralize and cache model-related keys."""

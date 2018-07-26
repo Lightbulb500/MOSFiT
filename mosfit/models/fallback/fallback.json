@@ -8,17 +8,11 @@
         ],
         "latex":"E({\\rm B} - {\\rm V})"
     },
-    "fnickel":{
-        "kind":"parameter",
-        "value":1.0,
-        "class":"parameter",
-        "latex":"f_{\\rm Ni}"
-    },
     "nhhost":{
         "kind":"parameter",
         "value":1.0e18,
         "class":"parameter",
-        "latex":"n_{\\rm H,host}",
+        "latex":"n_{\\rm H}^{\\rm host}\\,({\\rm cm}^{-2})",	
         "derived_keys":"avhost"
     },
     "texplosion":{
@@ -28,13 +22,19 @@
         "latex":"t_{\\rm exp}\\,{\\rm (days)}",
         "requests":{
             "min_times": "transient"
-        }
+        }	
     },
-    "temperature":{
+    "Lat1sec":{
         "kind":"parameter",
-        "value":1.0e4,
+        "value":1.0e55,
         "class":"parameter",
-        "latex":"T_{\\min}\\,{\\rm (K)}"
+        "latex":"L_{\\rm 1}\\,({\\rm erg}\\,{\\rm s}^{-1})"
+    },
+    "ton":{
+        "kind":"parameter",
+        "value":1e-5,
+        "class":"parameter",
+        "latex":"T_{\\rm tr}\\,{\\rm (days)}"
     },
     "kappa":{
         "kind":"parameter",
@@ -44,10 +44,10 @@
     },
     "kappagamma":{
         "kind":"parameter",
-        "value":10.0,
+        "value":1.0e10,
         "class":"parameter",
         "latex":"\\kappa_\\gamma\\,({\\rm cm}^{2}\\,{\\rm g}^{-1})"
-    },
+    },    
     "mejecta":{
         "kind":"parameter",
         "value":1.0,
@@ -56,9 +56,15 @@
     },
     "vejecta":{
         "kind":"parameter",
-        "value":1.0e4,
+        "value":1.5e4,
         "class":"parameter",
         "latex":"v_{\\rm ej}\\,({\\rm km\\,s}^{-1})"
+    },
+    "temperature":{
+        "kind":"parameter",
+        "value":6.0e3,
+        "class":"parameter",
+        "latex":"T_{\\min}\\,{\\rm (K)}"
     },
     "cutoff_wavelength":{
         "kind":"parameter",
@@ -66,51 +72,33 @@
         "class":"parameter",
         "latex":"\\lambda_{\\rm cutoff}"
     },
-    "line_wavelength":{
+    "neutrino_energy":{
         "kind":"parameter",
-        "value":7.5e3,
+        "value":1.0e51,
         "class":"parameter",
-        "latex":"g_{\\lambda}"
-    },
-    "line_width":{
+        "latex":"E_{\\nu}"
+    },    
+    "tnebular_min":{
         "kind":"parameter",
-        "value":500.0,
+        "value":100.0,
         "class":"parameter",
-        "latex":"g_{\\Delta \\lambda}"
-    },
-    "line_time":{
-        "kind":"parameter",
-        "value":50.0,
-        "class":"parameter",
-        "latex":"g_{t}"
-    },
-    "line_duration":{
-        "kind":"parameter",
-        "value":25.0,
-        "class":"parameter",
-        "latex":"g_{\\tau}"
-    },
-    "line_amplitude":{
-        "kind":"parameter",
-        "value":0.3,
-        "class":"parameter",
-        "latex":"g_{A}"
-    },
-    "nickelcobalt":{
+        "latex":"t_{\\rm neb}"
+    },    
+    "simplefallback":{
         "kind":"engine",
         "inputs":[
-            "densetimes",
-            "mejecta",
-            "fnickel",
+            "densetimes",	    
+            "Lat1sec",
+            "ton",
             "texplosion"
         ]
     },
     "diffusion":{
         "kind":"transform",
         "inputs":[
-            "nickelcobalt",
+            "simplefallback",
             "kappa",
-            "kappagamma",
+            "kappagamma",	    
             "mejecta",
             "texplosion",
             "vejecta"
@@ -135,34 +123,11 @@
         "requests":{
             "band_wave_ranges": "photometry"
         }
-    },
-    "line":{
-        "kind":"sed",
-        "inputs":[
-            "blackbody_cutoff",
-            "redshift",
-            "line_wavelength",
-            "line_width",
-            "line_time",
-            "line_duration",
-            "line_amplitude"
-        ],
-        "requests":{
-            "band_wave_ranges": "photometry"
-        }
-    },
-    "ia_constraints":{
-        "kind":"constraint",
-        "inputs":[
-            "mejecta",
-            "vejecta",
-            "fnickel"
-        ]
-    },
+    },    
     "losextinction":{
         "kind":"sed",
         "inputs":[
-            "line",
+            "blackbody_cutoff",
             "nhhost",
             "rvhost",
             "ebv"
@@ -173,14 +138,32 @@
     },
     "photometry":{
         "kind":"observable",
-        "supports":[
-            "ultraviolet",
-            "optical",
-            "infrared"
-        ],
         "inputs":[
             "losextinction",
             "lumdist"
         ]
-    }
+    },
+    "fallback_constraints":{
+        "kind":"constraint",
+        "inputs":[
+            "mejecta",
+            "vejecta",
+            "kappa",
+            "tnebular_min",
+            "Lat1sec",
+            "ton",
+            "diffusion",
+            "texplosion",
+            "redshift",
+            "alltimes",
+            "neutrino_energy"	    
+        ]
+    },    
+    "likelihood":{
+        "kind":"objective",
+        "inputs":[
+            "diagonal",
+            "fallback_constraints"
+        ]
+    }    
 }

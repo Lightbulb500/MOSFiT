@@ -63,12 +63,15 @@ class Parameter(Module):
         """Evaluate natural log of probability density function."""
         return 0.0
 
-    def prior_cdf(self, u):
-        """Evaluate cumulative density function."""
+    def prior_icdf(self, u):
+        """Evaluate inverse cumulative density function."""
         return u
 
     def value(self, f):
         """Return the value of the parameter in parameter's units."""
+        if np.isnan(f):
+            raise ValueError('NaN fraction passed to parameter.')
+
         value = np.clip(f *
                         (self._max_value - self._min_value) + self._min_value,
                         self._min_value, self._max_value)

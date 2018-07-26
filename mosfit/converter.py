@@ -82,7 +82,7 @@ class Converter(object):
         self._band_names = [
             'U', 'B', 'V', 'R', 'I', 'J', 'H', 'K', 'K_s', "Ks", "K'", 'u',
             'g', 'r', 'i', 'z', 'y', 'W1', 'W2', 'M2', "u'", "g'", "r'", "i'",
-            "z'", 'C', 'Y', 'Open'
+            "z'", 'C', 'Y', 'I1', 'I2', 'I3', 'I4', 'Open'
         ]
         ebands = [a + b for a, b in chain(
             product(self._ecntstrs, self._band_names),
@@ -139,6 +139,7 @@ class Converter(object):
                     'event', 'transient', 'name', 'supernova', 'sne', 'id',
                     'identifier', 'object']),
                 (ENTRY.REDSHIFT, ['redshift']),
+                (ENTRY.HOST, ['host']),
                 (ENTRY.LUM_DIST, [
                     'lumdist', 'luminosity distance', 'distance']),
                 (ENTRY.COMOVING_DIST, ['comoving distance']),
@@ -146,7 +147,7 @@ class Converter(object):
                 (ENTRY.DEC, ['dec', 'declination']),
                 (ENTRY.EBV, ['ebv', 'extinction']),
                 # At the moment transient-specific keys are not in astrocats.
-                ('claimedtype', [
+                (Key('claimedtype', KEY_TYPES.STRING), [
                     'claimedtype', 'type', 'claimed_type', 'claimed type'])
             ))
 
@@ -183,7 +184,8 @@ class Converter(object):
             PHOTOMETRY.BAND, PHOTOMETRY.INSTRUMENT, PHOTOMETRY.TELESCOPE]
         self._entry_keys = [
             ENTRY.COMOVING_DIST, ENTRY.REDSHIFT, ENTRY.LUM_DIST,
-            ENTRY.RA, ENTRY.DEC, ENTRY.EBV, 'claimedtype']
+            ENTRY.RA, ENTRY.DEC, ENTRY.EBV, ENTRY.HOST, Key(
+                'claimedtype', KEY_TYPES.STRING)]
         self._use_mc = False
         self._month_rep = re.compile(
             r'\b(' + '|'.join(self._MONTH_IDS.keys()) + r')\b')
@@ -876,10 +878,12 @@ class Converter(object):
                                 merge_with_existing = prt.prompt(
                                     'merge_with_existing', default='y')
                             if merge_with_existing:
+                                print(event_names[ei])
                                 existing = Entry.init_from_file(
                                     catalog=None,
                                     name=event_names[ei],
                                     path=new_events[ei],
+                                    clean=True,
                                     merge=False,
                                     pop_schema=False,
                                     ignore_keys=[ENTRY.MODELS],
@@ -1023,6 +1027,7 @@ class Converter(object):
             akeys.remove(PHOTOMETRY.BAND)
             akeys.remove(PHOTOMETRY.INSTRUMENT)
             akeys.remove(PHOTOMETRY.TELESCOPE)
+            akeys.append(ENTRY.NAME)
 
         # Make sure `E_` keys always appear after the actual measurements.
         if (PHOTOMETRY.MAGNITUDE in akeys and
